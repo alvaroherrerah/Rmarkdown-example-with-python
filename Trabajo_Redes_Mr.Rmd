@@ -1,0 +1,562 @@
+---
+title: "REDES NEURONALES DE CONVOLUCIÓN APRENDIZAJE PROFUNDO "
+subtitle: 'PRÁCTICA 1: VGG16 en Keras'
+date: "27/04/2024"
+author: 
+- \textit{Álvaro Amador Herrera Herrera {\small(alvaroa.herrera@estudiante.uam.es)},}
+output:
+  pdf_document: 
+      latex_engine: xelatex
+  html_document: default
+
+---
+
+\centering
+\raggedright
+\newpage
+\tableofcontents
+\newpage
+
+
+# Primero Instalamos Python en Rmarkdown
+
+```{r setup, include=FALSE}
+library(reticulate)
+use_python("C:/Users/Álvaro/AppData/Local/Programs/Python/Python312/python.exe")
+```
+
+# Programar en Keras la red VGG16 para clasificación binaria
+
+a.	Código y su explicación en: Step by step VGG16 implementation in Keras for beginners
+b.	Datos en: Dogs vs Cats dataset
+
+#	Descripción gráfica de la red VGG16 (máximo 1 página). 
+
+Crear una figura descriptiva de la red del apartado anterior, incluyendo la representación gráfica de cada capa y los valores de todos sus parámetros e hiperparámetros (sugerencia: hacerla en ppt y trasladarla después al Word o pdf).
+
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/red_power.png")
+```
+
+
+#	Representar en una sola figura la evolución de la precisión durante el entrenamiento   
+
+a. en la submuestra de entrenamiento, mostrando la precisión para cada iteración; y 
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/iterac_acc.png")
+```
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/iterac_loss.png")
+```
+
+
+b. en la submuestra de test, mostrando la precisión para cada época.
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/epoc_loss_acc.png")
+```
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/epoc_acc.png")
+```
+
+
+#	Visualizar núcleos y activaciones
+
+Para cada capa convolucional, tras finalizar el aprendizaje, visualizar:
+
+a)	Los núcleos de convolución de cada una de las capas.
+Vamos a visualizar los primeros 6 filtros de VGG16 de cada capa.
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/nucleos.png")
+```
+
+b)	Unos cuantos mapas de activación elegidos al azar.
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/mapas_activa.png")
+```
+
+
+#	Sobreajuste
+
+a)	Decidir si ocurre sobreajuste y explicar el criterio utilizado; y
+
+El sobreajuste durante el entrenamiento se puede detectar cuando el error en los datos de entrenamiento disminuye muy poco pero el error en validación aumenta a un valor más grande.
+Del mismo modo sucede con la precisión, el valor de precisión para el train sigue aumentando ligeramente, mientras que la precisión de validación no lo hace e incluso tiene bajadas respecto a valores previos.
+Si seguimos esta lógica y observando el gráfico previamente expuesto podemos decir que hay sobreajuste llegados a cierta época de nuestro modelo y definitivamente presente en las últimas, como exponemos a continuación.
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/overfitting.png")
+```
+
+b)	En caso afirmativo, determinar en qué época se inicia el sobreajuste.
+
+Nuestro modelo hace un early stopping en la época 67. Sin embargo, el sobreajuste comienza en torno a la época 58.
+Epoch 58/100
+100/100 [==============================] - ETA: 0s - loss: 0.1180 - accuracy: 0.9541
+Epoch 58: val_accuracy did not improve from 0.94687
+Epoch 58: mean_acc=0.7941, std_acc=0.1418, CI=(0.7576, 0.8306)
+
+```{r, echo=FALSE}
+knitr::include_graphics("C:/Users/Álvaro/Documents/Máster/SegundoCuatrimestre/RedesNeuronales/imagenes/epoc_loss_acc2.png")
+```
+
+Aunque si observamos las gráficos comenzamos a observar este comportamiento en torno a la época 40, a partir de la cual, las diferencias entre los datos de precisión y pérdida entre validación y entrenamiento comienzan a hacerse notables.
+
+
+# Código:
+1.	Programar en Keras la red VGG16 para clasificación binaria
+
+1.1. Código y su explicación en: Step by step VGG16 implementation in Keras for beginners
+1.2. Datos en: Dogs vs Cats dataset
+
+
+```{python eval=FALSE}
+#      Convolutional network VGG16
+import os
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, Flatten, Input
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from keras.optimizers import Adam
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+```
+
+A continuación, extraemos las imágenes adaptadas al código desde drive.
+
+```{python eval=FALSE}
+# Para extraer las imágenes
+
+from google.colab import drive
+
+drive.mount('/content/drive')
+
+import zipfile
+import os
+
+# Ruta a la carpeta donde están tus archivos zip
+base_zip_path = ('/content/drive/My Drive/Redes_Neuronales/')
+
+# Directorios para extraer los contenidos
+data_dir = '/content/data'
+test_dir = '/content/test'
+
+# Descomprimir data.zip
+with zipfile.ZipFile(base_zip_path + 'data.zip', 'r') as zip_ref:
+    zip_ref.extractall(data_dir)
+
+# Descomprimir test.zip
+with zipfile.ZipFile(base_zip_path + 'test.zip', 'r') as zip_ref:
+    zip_ref.extractall(test_dir)
+```
+
+Una vez hemos introducido nuestros datos al directorio de Collab, pasamos los datos (imágenes) en sus variables correspondientes:
+
+```{python eval=FALSE}
+trdata = ImageDataGenerator()
+traindata = trdata.flow_from_directory(directory=data_dir, target_size=(224,224))
+
+tsdata = ImageDataGenerator()
+testdata = tsdata.flow_from_directory(directory=test_dir, target_size=(224,224))
+```
+
+Esto nos devuelve el siguiente resultado:
+
+Found 20000 images belonging to 2 classes.
+Found 5000 images belonging to 2 classes.
+
+Es decir, tenemos 20000 imágenes (10000 de perros y las mismas de gatos) para train y 5000 con la misma estructura para test.
+
+Lo siguiente es la arquitectura de la red:
+
+```{python eval=FALSE}
+model = Sequential()
+model.add(Conv2D(input_shape=(224,224,3),filters=64,kernel_size=(3,3),padding="same", activation="relu"))
+model.add(Conv2D(filters=64,kernel_size=(3,3),padding="same", activation="relu"))
+model.add(MaxPool2D(pool_size=(2,2),strides=(2,2)))
+model.add(Conv2D(filters=128, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(Conv2D(filters=128, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(MaxPool2D(pool_size=(2,2),strides=(2,2)))
+model.add(Conv2D(filters=256, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(Conv2D(filters=256, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(Conv2D(filters=256, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(MaxPool2D(pool_size=(2,2),strides=(2,2)))
+model.add(Conv2D(filters=512, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(Conv2D(filters=512, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(Conv2D(filters=512, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(MaxPool2D(pool_size=(2,2),strides=(2,2)))
+model.add(Conv2D(filters=512, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(Conv2D(filters=512, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(Conv2D(filters=512, kernel_size=(3,3), padding="same", activation="relu"))
+model.add(MaxPool2D(pool_size=(2,2),strides=(2,2)))
+
+model.add(Flatten())
+model.add(Dense(units=4096,activation="relu"))
+model.add(Dense(units=4096,activation="relu"))
+model.add(Dense(units=2, activation="softmax"))
+```
+
+Y el model compile con nuestro optimizador con la tasa de aprendizaje correspondiente. 
+
+```{python eval=FALSE}
+opt = tf.keras.optimizers.Adam(learning_rate=0.0001)
+model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+
+model.summary()
+```
+
+Seguimos con los callbacks, aquellas funciones que nos van a servir para una serie de tareas mientras la red se ejecuta.
+
+```{python eval=FALSE}
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+
+checkpoint = ModelCheckpoint(
+    'vgg16.keras',  # Cambia la extensión de .h5 a .keras
+    monitor='val_accuracy',
+    save_best_only=True,
+    verbose=1,
+    save_weights_only=False,
+    mode='auto',
+    save_freq='epoch'
+)
+
+early = EarlyStopping(
+    monitor='val_accuracy',
+    min_delta = 0,
+    patience=10,
+    verbose=1,
+    mode='auto'
+)
+```
+
+La siguiente función nos va a permitir almacenar los valores de cada iteración.
+
+```{python eval=FALSE}
+# function to extract iterations
+from collections import deque
+import keras.callbacks
+
+class BatchHistory(keras.callbacks.Callback):
+    def on_train_begin(self, logs=None):
+        self.epoch_losses = []
+        self.epoch_accuracy = []
+        self.batch_losses = []
+        self.batch_accuracy = []
+        self.log_every_n_batches = 3  # Define cada cuántos batches quieres registrar
+
+    def on_batch_end(self, batch, logs=None):
+        if batch % self.log_every_n_batches == 0:  # Solo registrar cada 10 batches
+            self.batch_losses.append(logs.get('loss'))
+            self.batch_accuracy.append(logs.get('accuracy'))
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.epoch_losses.append(self.batch_losses)
+        self.epoch_accuracy.append(self.batch_accuracy)
+        self.batch_losses = []
+        self.batch_accuracy = []
+        
+batch_history = BatchHistory()
+```
+
+Nótese que durante cada iteración almacenamos los valores de accuracy y loss, estos se almacenan en una lista, que finalmente cuando termine la época se almacenará en otra (tendremos dos lista de listas (para loss y accuracy) con todos los valores almacenados).
+
+Y la siguiente nos va a dar los datos necesarios para comprobar el sobreajuste:
+
+```{python eval=FALSE}
+import numpy as np
+from keras.callbacks import Callback
+
+class DetailedMetrics(Callback):
+    def on_train_begin(self, logs=None):
+        self.train_acc = []
+        self.val_acc = []
+        self.train_loss = []
+        self.val_loss = []
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.train_acc.append(logs.get('accuracy'))
+        self.val_acc.append(logs.get('val_accuracy'))
+        self.train_loss.append(logs.get('loss'))
+        self.val_loss.append(logs.get('val_loss'))
+
+        # Calcular desviación estándar y límites de confianza para la precisión de entrenamiento
+        if len(self.train_acc) > 1:
+            mean_acc = np.mean(self.train_acc)
+            std_acc = np.std(self.train_acc)
+            conf_interval = 1.96 * (std_acc / np.sqrt(len(self.train_acc)))
+            print(f"Epoch {epoch + 1}: mean_acc={mean_acc:.4f}, std_acc={std_acc:.4f}, CI=({mean_acc - conf_interval:.4f}, {mean_acc + conf_interval:.4f})")
+
+            # Detectar sobreajuste
+            if logs.get('val_accuracy') + 0.05 < logs.get('accuracy'):
+                print(f"Epoch {epoch + 1}: Potential overfitting detected.")
+
+# Añadir el callback
+detailed_metrics = DetailedMetrics()
+```
+
+Por último, el modelo completo:
+
+```{python eval=FALSE}
+hist = model.fit(
+    traindata,
+    steps_per_epoch=100,
+    validation_data=testdata,
+    validation_steps=10,
+    epochs=100,
+    batch_size = 30,
+    callbacks=[checkpoint, early, batch_history, detailed_metrics]
+)
+```
+
+Como se puede ver en el model fit, tenemos cuatro callbacks, dos originales del artículo, y dos desarrollados por nosotros para poder realizar las tareas más adelante.
+
+
+3.	Representar en una sola figura la evolución de la precisión durante el entrenamiento
+
+3.1. en la submuestra de entrenamiento, mostrando la precisión para cada iteración; 
+
+```{python eval=FALSE}
+import matplotlib.pyplot as plt
+
+# Initialize lists for x-axis points, accuracy, and loss values
+epoch_points = []
+accuracies = []
+losses = []
+
+# Calculate x-axis position for both accuracy and loss
+for epoch_idx, (batch_acc, batch_loss) in enumerate(zip(batch_history.epoch_accuracy, batch_history.epoch_losses)):
+    for batch_idx, (acc, loss) in enumerate(zip(batch_acc, batch_loss)):
+        offset = batch_idx / len(batch_acc)
+        epoch_points.append(epoch_idx + offset)
+        accuracies.append(acc)
+        losses.append(loss)
+
+# Plot for accuracy
+plt.figure(figsize=(15, 5))
+plt.plot(epoch_points, accuracies, label='Batch Training Accuracy')  # Plot training accuracy per batch
+plt.plot(hist.history['val_accuracy'], label='Val Accuracy')  # Plot validation accuracy
+plt.title('Batch Accuracy per Epoch')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.xticks(list(range(1, len(batch_history.epoch_accuracy) + 1)))  # Set x-axis ticks to match epochs
+plt.show()
+
+# Plot for loss
+plt.figure(figsize=(15, 5))
+plt.plot(epoch_points, losses, label='Batch Training Loss', color='red')  # Plot training loss per batch
+plt.plot(hist.history['val_loss'], label='Val Loss')  # Plot validation loss
+plt.title('Batch Loss per Epoch')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.xticks(list(range(1, len(batch_history.epoch_losses) + 1)))  # Set x-axis ticks to match epochs
+plt.show()
+```
+
+Este bloque de código se encarga de por un lado de extraer los datos de la lista de listas previamente mecionadas con el bucle for y por otro lado de representar los dos gráficos de iteraciones que se han presentado anteriormente.
+
+
+3.2. y en la submuestra de test, mostrando la precisión para cada época.
+
+
+```{python eval=FALSE}
+import matplotlib.pyplot as plt
+plt.plot(hist.history["accuracy"])
+plt.plot(hist.history['val_accuracy'])
+plt.plot(hist.history['loss'])
+plt.plot(hist.history['val_loss'])
+plt.title("Model Performance")
+plt.ylabel("Accuracy")
+plt.xlabel("Epoch")
+plt.legend(["Train Accuracy", "Validation Accuracy", "Train Loss", "Validation Loss"], loc='upper left')
+plt.show()
+```
+
+Por otra parte, a diferencia de los gráficos anteriores, este nos devuelve los gráficos de accuracy y loss para cada época.
+
+4.	Visualizar núcleos y activaciones
+Para cada capa convolucional, tras finalizar el aprendizaje, visualizar:
+
+4.1.	Los núcleos de convolución de cada una de las capas.
+
+```{python eval=FALSE}
+def plot_conv_weights(model, layer_name):
+    # Asumir que layer_name es el nombre de una capa convolucional
+    layer = model.get_layer(name=layer_name)
+    filters, biases = layer.get_weights()
+    f_min, f_max = filters.min(), filters.max()
+    filters = (filters - f_min) / (f_max - f_min)  # normalizar los filtros
+
+    n_filters = 6  # número de filtros para visualizar
+    ix = 1
+    fig = plt.figure(figsize=(20, 15))
+    for i in range(n_filters):
+        f = filters[:, :, :, i]
+        for j in range(3):  # asumir que los filtros tienen 3 canales
+            ax = fig.add_subplot(n_filters, 3, ix)
+            ax.imshow(f[:, :, j], cmap='gray')  # plotear cada canal individualmente
+            ax.axis('off')
+            ix += 1
+    plt.show()
+
+# Ejemplo de uso:
+plot_conv_weights(model, 'conv2d_12')
+```
+
+Para visualizar cada núcleo, simplemente introducimos su nombre en la función. En este caso nuestra función únicamente nos va a devolver seis filtros para cada capa.
+
+4.2. Unos cuantos mapas de activación elegidos al azar.
+
+Primero pasamos nuestro modelo guardado:
+
+```{python eval=FALSE}
+from keras.preprocessing import image
+img = image.load_img("image.jpg",target_size=(224,224))
+img = np.asarray(img)
+plt.imshow(img)
+img = np.expand_dims(img, axis=0)
+from keras.models import load_model
+saved_model = load_model("vgg16.keras")
+output = saved_model.predict(img)
+if output[0][0] > output[0][1]:
+    print("cat")
+else:
+    print('dog')
+```
+
+Y a continuación, extraemos algunos mapas de activaciones.
+
+```{python eval=FALSE}
+from keras.preprocessing.image import load_img, img_to_array
+from keras.models import Model
+from matplotlib import pyplot
+from numpy import expand_dims
+
+# Asumiendo que 'model' ya está definido y cargado
+from keras.models import load_model
+model = load_model("vgg16.keras")
+
+ixs = [3, 6, 10, 14, 18]
+outputs = [model.layers[i].output for i in ixs]
+model = Model(inputs=model.inputs, outputs=outputs)
+
+# Cargar y preparar la imagen
+img = load_img('image.jpg', target_size=(224, 224))
+img = img_to_array(img)
+img = expand_dims(img, axis=0)
+
+# Obtener los mapas de características
+feature_maps = model.predict(img)
+
+# Imprimir las formas de cada mapa de características para diagnóstico
+for fmap in feature_maps:
+    print(fmap.shape)
+
+# Asumir que square es correcto según el mínimo número de filtros en las capas seleccionadas
+# Si alguna capa tiene menos de 64 filtros, necesitarás ajustar este valor
+square = 8
+
+# Código de visualización, ajustando según los datos de formas
+for fmap in feature_maps:
+    ix = 1
+    pyplot.figure(figsize=(12,12))
+    num_filters = fmap.shape[-1]
+    for _ in range(min(square, num_filters)):
+        for _ in range(min(square, num_filters)):
+            ax = pyplot.subplot(square, square, ix)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            pyplot.imshow(fmap[0, :, :, ix-1], cmap='gray')
+            if ix < num_filters:  # Asegura no ir más allá del número de filtros en la capa
+                ix += 1
+    pyplot.show()
+```
+
+
+
+5.	Sobreajuste
+
+5.1.	Decidir si ocurre sobreajuste y explicar el criterio utilizado; y
+
+5.2.	En caso afirmativo, determinar en qué época se inicia el sobreajuste.
+
+```{python eval=FALSE}
+import pandas as pd
+
+# Asumiendo que 'detailed_metrics' es tu callback que ha recopilado los datos
+data = {
+    'Epoch': range(1, len(detailed_metrics.train_acc) + 1),
+    'Train Accuracy': detailed_metrics.train_acc,
+    'Validation Accuracy': detailed_metrics.val_acc,
+    'Train Loss': detailed_metrics.train_loss,
+    'Validation Loss': detailed_metrics.val_loss
+}
+
+# Crear DataFrame
+df = pd.DataFrame(data)
+
+# Calcular desviación estándar y límites de confianza para la precisión en entrenamiento
+df['Std Deviation'] = df['Train Accuracy'].expanding().std()
+conf_interval = 1.96 * (df['Std Deviation'] / np.sqrt(df.index + 1))
+df['CI Lower'] = df['Train Accuracy'] - conf_interval
+df['CI Upper'] = df['Train Accuracy'] + conf_interval
+
+# Detectar sobreajuste y agregar a la tabla
+df['Overfitting'] = df.apply(lambda row: 'Yes' if row['Train Accuracy'] > row['Validation Accuracy'] + 0.05 else 'No', axis=1)
+
+# Mostrar la tabla
+print(df)
+```
+
+Con el callback que hemos utilizado anteriormente tenemos nuestros datos para comprobar el sobreajuste.
+
+```{python eval=FALSE}
+# Datos de pérdida
+plt.figure(figsize=(10, 4))
+plt.subplot(1, 2, 1)
+plt.plot(hist.history['loss'], label='Pérdida de Entrenamiento')
+plt.plot(hist.history['val_loss'], label='Pérdida de Validación')
+plt.title('Pérdida del Modelo')
+plt.ylabel('Pérdida')
+plt.xlabel('Época')
+plt.legend()
+
+# Datos de precisión
+plt.subplot(1, 2, 2)
+plt.plot(hist.history['accuracy'], label='Precisión de Entrenamiento')
+plt.plot(hist.history['val_accuracy'], label='Precisión de Validación')
+plt.title('Precisión del Modelo')
+plt.ylabel('Precisión')
+plt.xlabel('Época')
+plt.legend()
+
+plt.show()
+```
+
+Por último, los gráficos utilizados para comprobar visualmente el sobreajuste.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
